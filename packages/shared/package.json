@@ -1,0 +1,11 @@
+{
+  "name": "@receipt-scanner/shared",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
