@@ -8,6 +8,10 @@ import { usersRoutes } from './routes/users.js';
 import { initDb } from './db/client.js';
 
 export function buildServer() {
+  if (process.env.NODE_ENV !== 'test' && (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32)) {
+    throw new Error('JWT_SECRET must be set and at least 32 characters');
+  }
+
   const server = Fastify({ logger: process.env.NODE_ENV !== 'test' });
 
   server.register(corsPlugin);
@@ -15,7 +19,7 @@ export function buildServer() {
   server.register(jwtPlugin);
 
   server.register(authRoutes, { prefix: '/auth' });
-  server.register(receiptsRoutes, { prefix: '/receipts' });
+  server.register(receiptsRoutes, { prefix: '/receipts', bodyLimit: 10 * 1024 * 1024 }); // 10MB
   server.register(usersRoutes, { prefix: '/users' });
 
   server.get('/health', async () => ({ status: 'ok' }));

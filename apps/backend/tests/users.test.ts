@@ -14,11 +14,11 @@ beforeAll(async () => {
 
   await server.inject({
     method: 'POST', url: '/auth/register',
-    payload: { email: 'user@test.com', password: 'pass123' },
+    payload: { email: 'user@test.com', password: 'pass1234' },
   });
   const login = await server.inject({
     method: 'POST', url: '/auth/login',
-    payload: { email: 'user@test.com', password: 'pass123' },
+    payload: { email: 'user@test.com', password: 'pass1234' },
   });
   accessToken = login.json().accessToken;
 });

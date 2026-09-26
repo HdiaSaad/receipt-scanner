@@ -3,14 +3,22 @@ import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 import appleSignin from 'apple-signin-auth';
+import { z } from 'zod';
 import { getDb } from '../db/client.js';
 import type {
-  RegisterRequest,
-  LoginRequest,
-  AppleSignInRequest,
-  RefreshRequest,
   AuthResponse,
 } from '@receipt-scanner/shared';
+
+// --- Zod schemas ---
+const RegisterSchema = z.object({ email: z.string().email(), password: z.string().min(8) });
+const LoginSchema = z.object({ email: z.string().email(), password: z.string().min(1) });
+const AppleSchema = z.object({
+  identityToken: z.string(),
+  email: z.string().email().nullable().optional(),
+  givenName: z.string().nullable().optional(),
+  familyName: z.string().nullable().optional(),
+});
+const RefreshSchema = z.object({ refreshToken: z.string() });
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -29,13 +37,16 @@ function generateTokenPair(fastify: FastifyInstance, userId: string) {
 
 export async function authRoutes(fastify: FastifyInstance) {
   // POST /auth/register
-  fastify.post<{ Body: RegisterRequest }>(
+  fastify.post(
     '/register',
     {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
-      const { email, password } = request.body;
+      const parsed = RegisterSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid input' });
+      const { email, password } = parsed.data;
+
       const db = getDb();
       const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
       if (existing) return reply.status(409).send({ error: 'Email already registered' });
@@ -57,13 +68,16 @@ export async function authRoutes(fastify: FastifyInstance) {
   );
 
   // POST /auth/login
-  fastify.post<{ Body: LoginRequest }>(
+  fastify.post(
     '/login',
     {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
-      const { email, password } = request.body;
+      const parsed = LoginSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid input' });
+      const { email, password } = parsed.data;
+
       const db = getDb();
       const user = db
         .prepare('SELECT id, email, password_hash FROM users WHERE email = ?')
@@ -84,17 +98,23 @@ export async function authRoutes(fastify: FastifyInstance) {
   );
 
   // POST /auth/apple
-  fastify.post<{ Body: AppleSignInRequest }>(
+  fastify.post(
     '/apple',
     {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
-      const { identityToken, email } = request.body;
+      const parsed = AppleSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid input' });
+      const { identityToken, email } = parsed.data;
+
+      const clientId = process.env.APPLE_CLIENT_ID;
+      if (!clientId) return reply.status(503).send({ error: 'Apple Sign In not configured' });
+
       let applePayload: { sub: string };
       try {
         applePayload = (await appleSignin.verifyIdToken(identityToken, {
-          audience: process.env.APPLE_CLIENT_ID ?? 'com.yourapp.receiptscanner',
+          audience: clientId,
           ignoreExpiration: false,
         })) as { sub: string };
       } catch {
@@ -127,13 +147,16 @@ export async function authRoutes(fastify: FastifyInstance) {
   );
 
   // POST /auth/refresh
-  fastify.post<{ Body: RefreshRequest }>(
+  fastify.post(
     '/refresh',
     {
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
     },
     async (request, reply) => {
-      const { refreshToken } = request.body;
+      const parsed = RefreshSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid input' });
+      const { refreshToken } = parsed.data;
+
       const db = getDb();
       const tokenHash = hashToken(refreshToken);
       const stored = db
@@ -144,8 +167,12 @@ export async function authRoutes(fastify: FastifyInstance) {
         return reply.status(401).send({ error: 'Invalid or expired refresh token' });
       }
 
-      const accessToken = fastify.jwt.sign({ userId: stored.user_id }, { expiresIn: '15m' });
-      return { accessToken };
+      // Delete old token (rotation)
+      db.prepare('DELETE FROM refresh_tokens WHERE token_hash = ?').run(tokenHash);
+
+      // Issue new access + refresh pair
+      const { accessToken, refreshToken: newRefreshToken } = generateTokenPair(fastify, stored.user_id);
+      return { accessToken, refreshToken: newRefreshToken };
     },
   );
 

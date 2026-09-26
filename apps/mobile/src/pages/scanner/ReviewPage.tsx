@@ -8,7 +8,7 @@ import { useHistory, useLocation } from 'react-router-dom';
 import { api } from '../../services/api';
 import { useReceiptsStore } from '../../store/receipts.store';
 import LineItemsList from '../../components/LineItemsList';
-import type { ScanResponse, CreateReceiptRequest, Receipt } from '@receipt-scanner/shared'; // eslint-disable-line @typescript-eslint/no-unused-vars
+import type { ScanResponse, CreateReceiptRequest, Receipt } from '@receipt-scanner/shared';
 
 interface LocationState { imageBase64: string }
 
@@ -27,6 +27,7 @@ const ReviewPage: React.FC = () => {
   const { addReceipt } = useReceiptsStore();
   const [scanning, setScanning] = useState(true);
   const [imageUrl, setImageUrl] = useState('');
+  const [scanResponse, setScanResponse] = useState<ScanResponse | null>(null);
   const [scanError, setScanError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -43,6 +44,7 @@ const ReviewPage: React.FC = () => {
       try {
         const { data } = await api.post<ScanResponse>('/receipts/scan', { imageBase64 });
         setImageUrl(data.imageUrl);
+        setScanResponse(data);
         const r = data.ocrResult;
         reset({
           store: r.store ?? '',
@@ -78,7 +80,7 @@ const ReviewPage: React.FC = () => {
         currency: values.currency || 'EUR',
         tax: values.tax ? parseFloat(values.tax) : null,
         imageUrl,
-        rawOcr: '{}',
+        rawOcr: scanResponse ? JSON.stringify(scanResponse.ocrResult) : '{}',
         lineItems: values.lineItems,
       };
       const { data } = await api.post<Receipt>('/receipts', payload);

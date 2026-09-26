@@ -39,35 +39,31 @@ const App: React.FC = () => {
   return (
     <IonApp>
       <IonReactRouter>
-        <IonRouterOutlet>
-          <Route exact path="/scan/crop" component={CropPage} />
-          <Route exact path="/scan/review" component={ReviewPage} />
-          <Route exact path="/receipts/:id" component={ReceiptDetailPage} />
-        </IonRouterOutlet>
         <IonTabs>
           <IonRouterOutlet>
+            {/* Tab pages */}
             <Route exact path="/scanner" component={ScannerPage} />
             <Route exact path="/history" component={HistoryPage} />
             <Route exact path="/stats" component={StatsPage} />
             <Route exact path="/profile" component={ProfilePage} />
+            {/* Detail / flow pages — no tab bar via Ionic's automatic stack behaviour */}
+            <Route exact path="/scan/crop" component={CropPage} />
+            <Route exact path="/scan/review" component={ReviewPage} />
+            <Route exact path="/receipts/:id" component={ReceiptDetailPage} />
             <Redirect exact from="/" to="/scanner" />
           </IonRouterOutlet>
           <IonTabBar slot="bottom">
             <IonTabButton tab="scanner" href="/scanner">
-              <IonIcon icon={cameraOutline} />
-              <IonLabel>Scanner</IonLabel>
+              <IonIcon icon={cameraOutline} /><IonLabel>Scanner</IonLabel>
             </IonTabButton>
             <IonTabButton tab="history" href="/history">
-              <IonIcon icon={listOutline} />
-              <IonLabel>Historique</IonLabel>
+              <IonIcon icon={listOutline} /><IonLabel>Historique</IonLabel>
             </IonTabButton>
             <IonTabButton tab="stats" href="/stats">
-              <IonIcon icon={barChartOutline} />
-              <IonLabel>Statistiques</IonLabel>
+              <IonIcon icon={barChartOutline} /><IonLabel>Statistiques</IonLabel>
             </IonTabButton>
             <IonTabButton tab="profile" href="/profile">
-              <IonIcon icon={personOutline} />
-              <IonLabel>Profil</IonLabel>
+              <IonIcon icon={personOutline} /><IonLabel>Profil</IonLabel>
             </IonTabButton>
           </IonTabBar>
         </IonTabs>

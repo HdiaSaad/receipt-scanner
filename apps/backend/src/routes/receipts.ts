@@ -1,12 +1,35 @@
 import type { FastifyInstance } from 'fastify';
 import { v4 as uuidv4 } from 'uuid';
+import { z } from 'zod';
 import { getDb } from '../db/client.js';
 import { uploadToCloudinary } from '../services/image.service.js';
 import { runOcr } from '../services/ocr.service.js';
 import type {
-  ScanRequest, CreateReceiptRequest, UpdateReceiptRequest,
   ReceiptsListQuery, Receipt, StatsResponse,
 } from '@receipt-scanner/shared';
+
+// --- Zod schemas ---
+const LineItemSchema = z.object({
+  description: z.string(),
+  quantity: z.number(),
+  unitPrice: z.number(),
+  total: z.number(),
+});
+
+const CreateReceiptSchema = z.object({
+  store: z.string().nullable(),
+  date: z.string().nullable(),
+  total: z.number().nullable(),
+  currency: z.string().default('EUR'),
+  tax: z.number().nullable(),
+  imageUrl: z.string().url(),
+  rawOcr: z.string(),
+  lineItems: z.array(LineItemSchema),
+});
+
+const ScanSchema = z.object({ imageBase64: z.string().min(1).max(5 * 1024 * 1024) });
+
+const UpdateReceiptSchema = CreateReceiptSchema.partial();
 
 function rowToReceipt(row: Record<string, unknown>, lineItems: unknown[]): Receipt {
   return {
@@ -29,11 +52,13 @@ export async function receiptsRoutes(fastify: FastifyInstance) {
   fastify.addHook('preHandler', fastify.authenticate);
 
   // POST /receipts/scan  — OCR only, does NOT save
-  fastify.post<{ Body: ScanRequest }>(
+  fastify.post(
     '/scan',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (request, reply) => {
-      const { imageBase64 } = request.body;
+      const parsed = ScanSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid input' });
+      const { imageBase64 } = parsed.data;
       const imageUrl = await uploadToCloudinary(imageBase64);
       const ocrResult = await runOcr(imageUrl);
       return reply.send({ ocrResult, imageUrl });
@@ -79,24 +104,30 @@ export async function receiptsRoutes(fastify: FastifyInstance) {
   });
 
   // POST /receipts — save after user review
-  fastify.post<{ Body: CreateReceiptRequest }>('/', async (request, reply) => {
+  fastify.post('/', async (request, reply) => {
+    const parsed = CreateReceiptSchema.safeParse(request.body);
+    if (!parsed.success) return reply.status(400).send({ error: 'Invalid input' });
+    const { store, date, total, currency, tax, imageUrl, rawOcr, lineItems } = parsed.data;
+
     const { userId } = request.user;
-    const { store, date, total, currency, tax, imageUrl, rawOcr, lineItems } = request.body;
     const db = getDb();
     const id = uuidv4();
     const now = Date.now();
 
-    db.prepare(`
-      INSERT INTO receipts (id,user_id,store,date,total,currency,tax,image_url,raw_ocr,created_at,updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?)
-    `).run(id, userId, store, date, total, currency ?? 'EUR', tax, imageUrl, rawOcr, now, now);
+    const insertAll = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO receipts (id,user_id,store,date,total,currency,tax,image_url,raw_ocr,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+      `).run(id, userId, store, date, total, currency ?? 'EUR', tax, imageUrl, rawOcr, now, now);
 
-    const insertItem = db.prepare(
-      'INSERT INTO line_items (id,receipt_id,description,quantity,unit_price,total) VALUES (?,?,?,?,?,?)',
-    );
-    for (const item of lineItems) {
-      insertItem.run(uuidv4(), id, item.description, item.quantity, item.unitPrice, item.total);
-    }
+      const insertItem = db.prepare(
+        'INSERT INTO line_items (id,receipt_id,description,quantity,unit_price,total) VALUES (?,?,?,?,?,?)',
+      );
+      for (const item of lineItems) {
+        insertItem.run(uuidv4(), id, item.description, item.quantity, item.unitPrice, item.total);
+      }
+    });
+    insertAll();
 
     const row = db.prepare('SELECT * FROM receipts WHERE id = ?').get(id) as Record<string, unknown>;
     const items = db.prepare('SELECT * FROM line_items WHERE receipt_id = ?').all(id);
@@ -149,16 +180,19 @@ export async function receiptsRoutes(fastify: FastifyInstance) {
   });
 
   // PUT /receipts/:id
-  fastify.put<{ Params: { id: string }; Body: UpdateReceiptRequest }>(
+  fastify.put<{ Params: { id: string } }>(
     '/:id',
     async (request, reply) => {
+      const parsed = UpdateReceiptSchema.safeParse(request.body);
+      if (!parsed.success) return reply.status(400).send({ error: 'Invalid input' });
+      const fields = parsed.data;
+
       const { userId } = request.user;
       const { id } = request.params;
       const db = getDb();
       const existing = db.prepare('SELECT id FROM receipts WHERE id = ? AND user_id = ?').get(id, userId);
       if (!existing) return reply.status(404).send({ error: 'Receipt not found' });
 
-      const fields = request.body;
       const now = Date.now();
       const updates: string[] = ['updated_at = ?'];
       const values: unknown[] = [now];
@@ -171,17 +205,20 @@ export async function receiptsRoutes(fastify: FastifyInstance) {
         if (key in fields) { updates.push(`${col} = ?`); values.push((fields as Record<string, unknown>)[key]); }
       }
       values.push(id, userId);
-      db.prepare(`UPDATE receipts SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...values);
 
-      if (fields.lineItems) {
-        db.prepare('DELETE FROM line_items WHERE receipt_id = ?').run(id);
-        const insertItem = db.prepare(
-          'INSERT INTO line_items (id,receipt_id,description,quantity,unit_price,total) VALUES (?,?,?,?,?,?)',
-        );
-        for (const item of fields.lineItems) {
-          insertItem.run(uuidv4(), id, item.description, item.quantity, item.unitPrice, item.total);
+      const updateAll = db.transaction(() => {
+        db.prepare(`UPDATE receipts SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`).run(...values);
+        if (fields.lineItems) {
+          db.prepare('DELETE FROM line_items WHERE receipt_id = ?').run(id);
+          const insertItem = db.prepare(
+            'INSERT INTO line_items (id,receipt_id,description,quantity,unit_price,total) VALUES (?,?,?,?,?,?)',
+          );
+          for (const item of fields.lineItems) {
+            insertItem.run(uuidv4(), id, item.description, item.quantity, item.unitPrice, item.total);
+          }
         }
-      }
+      });
+      updateAll();
 
       const row = db.prepare('SELECT * FROM receipts WHERE id = ?').get(id) as Record<string, unknown>;
       const items = db.prepare('SELECT * FROM line_items WHERE receipt_id = ?').all(id);

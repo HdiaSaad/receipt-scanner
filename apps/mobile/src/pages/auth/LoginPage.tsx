@@ -38,8 +38,8 @@ const LoginPage: React.FC = () => {
     setError(null);
     try {
       const options: SignInWithAppleOptions = {
-        clientId: 'com.yourapp.receiptscanner',
-        redirectURI: 'https://your-backend.railway.app/auth/apple/callback',
+        clientId: import.meta.env.VITE_APPLE_CLIENT_ID ?? 'com.yourapp.receiptscanner',
+        redirectURI: import.meta.env.VITE_APPLE_REDIRECT_URI ?? '',
         scopes: 'email name',
       };
       const result = await SignInWithApple.authorize(options);

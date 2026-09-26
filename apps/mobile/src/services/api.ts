@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { storage } from './storage';
+import { useAuthStore } from '../store/auth.store';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
@@ -38,15 +39,16 @@ api.interceptors.response.use(
     try {
       const refreshToken = await storage.getRefreshToken();
       const { data } = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken });
-      const { accessToken } = data;
-      await storage.setTokens(accessToken, refreshToken!);
+      const { accessToken, refreshToken: newRefreshToken } = data;
+      await storage.setTokens(accessToken, newRefreshToken ?? refreshToken!);
       refreshQueue.forEach((cb) => cb(accessToken));
       refreshQueue = [];
       originalRequest.headers.Authorization = `Bearer ${accessToken}`;
       return api(originalRequest);
     } catch {
       await storage.clearTokens();
-      window.location.href = '/auth/login';
+      useAuthStore.getState().logout();
+      // Do not redirect here — App.tsx reacts to isAuthenticated=false
       return Promise.reject(error);
     } finally {
       isRefreshing = false;
