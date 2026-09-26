@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+*.db
+ios/
+android/
+.DS_Store
+*.tsbuildinfo
+.superpowers/
