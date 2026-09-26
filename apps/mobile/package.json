@@ -6,7 +6,10 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "ionic:build": "vite build",
-    "ionic:serve": "vite"
+    "ionic:serve": "vite",
+    "cap:add:ios": "npx cap add ios",
+    "cap:sync": "npx cap sync ios",
+    "cap:open": "npx cap open ios"
   },
   "dependencies": {
     "@capacitor-community/apple-sign-in": "^6.0.0",
