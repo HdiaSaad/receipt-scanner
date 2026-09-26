@@ -28,6 +28,7 @@ const ReviewPage: React.FC = () => {
   const [scanning, setScanning] = useState(true);
   const [imageUrl, setImageUrl] = useState('');
   const [scanError, setScanError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { register, handleSubmit, reset, control } = useForm<FormValues>({
@@ -84,7 +85,7 @@ const ReviewPage: React.FC = () => {
       addReceipt(data);
       history.replace('/history');
     } catch {
-      setScanError('Erreur lors de la sauvegarde.');
+      setSaveError('Erreur lors de la sauvegarde.');
     } finally {
       setSaving(false);
     }
@@ -115,6 +116,11 @@ const ReviewPage: React.FC = () => {
         {scanError && (
           <IonText color="warning" className="ion-padding">
             <p>{scanError}</p>
+          </IonText>
+        )}
+        {saveError && (
+          <IonText color="danger" className="ion-padding">
+            <p>{saveError}</p>
           </IonText>
         )}
         <form onSubmit={handleSubmit(onSave)}>

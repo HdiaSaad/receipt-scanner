@@ -2,7 +2,7 @@ import React from 'react';
 import { IonItem, IonLabel, IonInput, IonButton, IonIcon, IonList } from '@ionic/react';
 import { addOutline, trashOutline } from 'ionicons/icons';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-import { useFieldArray, Control } from 'react-hook-form';
+import { useFieldArray, Control, Controller } from 'react-hook-form';
 
 interface LineItemField {
   description: string;
@@ -27,8 +27,31 @@ const LineItemsList: React.FC<Props> = ({ control }) => {
       {fields.map((field, index) => (
         <IonItem key={field.id}>
           <IonLabel position="floating">Article {index + 1}</IonLabel>
-          <IonInput placeholder="Description" />
-          <IonInput type="number" placeholder="Total" slot="end" style={{ maxWidth: 80 }} />
+          <Controller
+            control={control}
+            name={`lineItems.${index}.description`}
+            render={({ field: f }) => (
+              <IonInput
+                value={f.value}
+                onIonInput={(e) => f.onChange(e.detail.value)}
+                placeholder="Description"
+              />
+            )}
+          />
+          <Controller
+            control={control}
+            name={`lineItems.${index}.total`}
+            render={({ field: f }) => (
+              <IonInput
+                type="number"
+                value={f.value}
+                onIonInput={(e) => f.onChange(parseFloat(e.detail.value ?? '0'))}
+                placeholder="Total"
+                slot="end"
+                style={{ maxWidth: 80 }}
+              />
+            )}
+          />
           <IonButton fill="clear" slot="end" onClick={() => remove(index)}>
             <IonIcon icon={trashOutline} />
           </IonButton>
