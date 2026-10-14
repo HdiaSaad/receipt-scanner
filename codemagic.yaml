@@ -10,7 +10,7 @@ workflows:
         certificates:
           - app_cert
       vars:
-        XCODE_PROJECT: apps/mobile/ios/App/App.xcodeproj
+        XCODE_WORKSPACE: apps/mobile/ios/App/App.xcworkspace
         XCODE_SCHEME: App
         BUNDLE_ID: ma.oasisnest.screenshotcleaner
         DEVELOPMENT_TEAM: U3V77CWH3F
@@ -19,7 +19,6 @@ workflows:
       - name: Enable pnpm
         script: |
           corepack enable
-          # packageManager field in root package.json pins pnpm; just prime the cache
           corepack prepare --activate
           pnpm --version
 
@@ -39,37 +38,6 @@ workflows:
           fi
           npx cap sync ios
 
-      - name: Materialize Capacitor symlinks for SPM
-        working_directory: apps/mobile
-        script: |
-          # pnpm leaves node_modules/@capacitor/* as symlinks into .pnpm/
-          # Capacitor's generated Package.swift uses relative paths that break
-          # under symlinks with Xcode's explicit module build. Replace symlinks
-          # with real directory copies so SPM sees stable, resolvable paths.
-          for pkg in node_modules/@capacitor/*; do
-            if [ -L "$pkg" ]; then
-              target=$(readlink "$pkg")
-              real=$(cd "$(dirname "$pkg")" && cd "$target" && pwd)
-              rm "$pkg"
-              cp -R "$real" "$pkg"
-              echo "Materialized $pkg from $real"
-            fi
-          done
-          for pkg in node_modules/@capacitor-community/*; do
-            if [ -L "$pkg" ]; then
-              target=$(readlink "$pkg")
-              real=$(cd "$(dirname "$pkg")" && cd "$target" && pwd)
-              rm "$pkg"
-              cp -R "$real" "$pkg"
-              echo "Materialized $pkg from $real"
-            fi
-          done
-          echo "--- Capacitor SPM structure ---"
-          ls -la ios/App/CapApp-SPM/ 2>/dev/null || echo "No CapApp-SPM dir"
-          cat ios/App/CapApp-SPM/Package.swift 2>/dev/null || echo "No Package.swift"
-          echo "--- node_modules/@capacitor ---"
-          ls -la node_modules/@capacitor/ 2>/dev/null || true
-
       - name: Patch Info.plist (bundle id, camera/photos usage)
         working_directory: apps/mobile/ios/App
         script: |
@@ -84,39 +52,35 @@ workflows:
         script: |
           sed -i.bak -E "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/g" App.xcodeproj/project.pbxproj
           sed -i.bak -E "s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $DEVELOPMENT_TEAM;/g" App.xcodeproj/project.pbxproj
-          # Capacitor's template may not have DEVELOPMENT_TEAM at all — ensure one line per buildSettings block
           if ! grep -q "DEVELOPMENT_TEAM" App.xcodeproj/project.pbxproj; then
             sed -i.bak -E "s/(PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;)/\1\n\t\t\t\tDEVELOPMENT_TEAM = $DEVELOPMENT_TEAM;/g" App.xcodeproj/project.pbxproj
           fi
           rm -f App.xcodeproj/project.pbxproj.bak
 
+      - name: Install CocoaPods
+        working_directory: apps/mobile/ios/App
+        script: |
+          # Capacitor 6 generates a Podfile-based project; pod install builds
+          # Capacitor + plugin frameworks that AppDelegate.swift imports.
+          pod repo update
+          pod install
+          ls -la
+
       - name: Set up code signing
         script: |
           xcode-project use-profiles
-
-      - name: Resolve SPM packages
-        working_directory: apps/mobile/ios/App
-        script: |
-          xcodebuild -resolvePackageDependencies \
-            -project App.xcodeproj \
-            -scheme App \
-            -clonedSourcePackagesDirPath ./spm-cache
 
       - name: Build iOS archive
         working_directory: apps/mobile/ios/App
         script: |
           xcodebuild \
-            -project App.xcodeproj \
+            -workspace App.xcworkspace \
             -scheme App \
             -configuration Release \
             -archivePath $CM_BUILD_DIR/App.xcarchive \
             -destination 'generic/platform=iOS' \
-            -clonedSourcePackagesDirPath ./spm-cache \
-            -skipPackagePluginValidation \
             archive \
-            COMPILER_INDEX_STORE_ENABLE=NO \
-            SWIFT_ENABLE_EXPLICIT_MODULES=NO \
-            SWIFT_USE_INTEGRATED_DRIVER=NO
+            COMPILER_INDEX_STORE_ENABLE=NO
 
       - name: Export IPA
         script: |
