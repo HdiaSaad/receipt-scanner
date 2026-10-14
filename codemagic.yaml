@@ -39,6 +39,37 @@ workflows:
           fi
           npx cap sync ios
 
+      - name: Materialize Capacitor symlinks for SPM
+        working_directory: apps/mobile
+        script: |
+          # pnpm leaves node_modules/@capacitor/* as symlinks into .pnpm/
+          # Capacitor's generated Package.swift uses relative paths that break
+          # under symlinks with Xcode's explicit module build. Replace symlinks
+          # with real directory copies so SPM sees stable, resolvable paths.
+          for pkg in node_modules/@capacitor/*; do
+            if [ -L "$pkg" ]; then
+              target=$(readlink "$pkg")
+              real=$(cd "$(dirname "$pkg")" && cd "$target" && pwd)
+              rm "$pkg"
+              cp -R "$real" "$pkg"
+              echo "Materialized $pkg from $real"
+            fi
+          done
+          for pkg in node_modules/@capacitor-community/*; do
+            if [ -L "$pkg" ]; then
+              target=$(readlink "$pkg")
+              real=$(cd "$(dirname "$pkg")" && cd "$target" && pwd)
+              rm "$pkg"
+              cp -R "$real" "$pkg"
+              echo "Materialized $pkg from $real"
+            fi
+          done
+          echo "--- Capacitor SPM structure ---"
+          ls -la ios/App/CapApp-SPM/ 2>/dev/null || echo "No CapApp-SPM dir"
+          cat ios/App/CapApp-SPM/Package.swift 2>/dev/null || echo "No Package.swift"
+          echo "--- node_modules/@capacitor ---"
+          ls -la node_modules/@capacitor/ 2>/dev/null || true
+
       - name: Patch Info.plist (bundle id, camera/photos usage)
         working_directory: apps/mobile/ios/App
         script: |
@@ -83,7 +114,9 @@ workflows:
             -clonedSourcePackagesDirPath ./spm-cache \
             -skipPackagePluginValidation \
             archive \
-            COMPILER_INDEX_STORE_ENABLE=NO
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            SWIFT_ENABLE_EXPLICIT_MODULES=NO \
+            SWIFT_USE_INTEGRATED_DRIVER=NO
 
       - name: Export IPA
         script: |
