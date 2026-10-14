@@ -87,9 +87,11 @@ const LoginPage: React.FC = () => {
           </IonButton>
         </form>
 
-        <IonButton expand="block" fill="outline" onClick={onAppleSignIn} disabled={loading}>
-          Se connecter avec Apple
-        </IonButton>
+        {import.meta.env.VITE_APPLE_SIGN_IN_ENABLED === 'true' && (
+          <IonButton expand="block" fill="outline" onClick={onAppleSignIn} disabled={loading}>
+            Se connecter avec Apple
+          </IonButton>
+        )}
 
         <IonButton expand="block" fill="clear" routerLink="/auth/register">
           Créer un compte

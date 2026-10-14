@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.yourapp.receiptscanner',
+  appId: 'ma.oasisnest.screenshotcleaner',
   appName: 'Receipt Scanner',
   webDir: 'dist',
   server: {

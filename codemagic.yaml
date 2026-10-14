@@ -1,0 +1,117 @@
+workflows:
+  ios-dev:
+    name: Receipt Scanner iOS (development)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      ios_signing:
+        provisioning_profiles:
+          - ios_profile
+        certificates:
+          - app_cert
+      vars:
+        XCODE_PROJECT: apps/mobile/ios/App/App.xcodeproj
+        XCODE_SCHEME: App
+        BUNDLE_ID: ma.oasisnest.screenshotcleaner
+        DEVELOPMENT_TEAM: U3V77CWH3F
+      node: 20.11.1
+    scripts:
+      - name: Enable pnpm
+        script: |
+          corepack enable
+          corepack prepare pnpm@9.15.0 --activate
+          pnpm --version
+
+      - name: Install dependencies
+        script: |
+          pnpm install --frozen-lockfile
+
+      - name: Build mobile web assets
+        script: |
+          pnpm --filter mobile run build
+
+      - name: Capacitor add + sync iOS
+        working_directory: apps/mobile
+        script: |
+          if [ ! -d ios ]; then
+            npx cap add ios
+          fi
+          npx cap sync ios
+
+      - name: Patch Info.plist (bundle id, camera/photos usage)
+        working_directory: apps/mobile/ios/App
+        script: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" App/Info.plist 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :NSCameraUsageDescription string 'Used to scan your receipts'" App/Info.plist 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :NSCameraUsageDescription 'Used to scan your receipts'" App/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :NSPhotoLibraryUsageDescription string 'Used to import receipts from your gallery'" App/Info.plist 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :NSPhotoLibraryUsageDescription 'Used to import receipts from your gallery'" App/Info.plist
+
+      - name: Set bundle id + team in Xcode project
+        working_directory: apps/mobile/ios/App
+        script: |
+          sed -i.bak -E "s/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;/g" App.xcodeproj/project.pbxproj
+          sed -i.bak -E "s/DEVELOPMENT_TEAM = [^;]*;/DEVELOPMENT_TEAM = $DEVELOPMENT_TEAM;/g" App.xcodeproj/project.pbxproj
+          # Capacitor's template may not have DEVELOPMENT_TEAM at all — ensure one line per buildSettings block
+          if ! grep -q "DEVELOPMENT_TEAM" App.xcodeproj/project.pbxproj; then
+            sed -i.bak -E "s/(PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;)/\1\n\t\t\t\tDEVELOPMENT_TEAM = $DEVELOPMENT_TEAM;/g" App.xcodeproj/project.pbxproj
+          fi
+          rm -f App.xcodeproj/project.pbxproj.bak
+
+      - name: Set up code signing
+        script: |
+          xcode-project use-profiles
+
+      - name: Resolve SPM packages
+        working_directory: apps/mobile/ios/App
+        script: |
+          xcodebuild -resolvePackageDependencies \
+            -project App.xcodeproj \
+            -scheme App \
+            -clonedSourcePackagesDirPath ./spm-cache
+
+      - name: Build iOS archive
+        working_directory: apps/mobile/ios/App
+        script: |
+          xcodebuild \
+            -project App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -archivePath $CM_BUILD_DIR/App.xcarchive \
+            -destination 'generic/platform=iOS' \
+            -clonedSourcePackagesDirPath ./spm-cache \
+            -skipPackagePluginValidation \
+            archive \
+            COMPILER_INDEX_STORE_ENABLE=NO
+
+      - name: Export IPA
+        script: |
+          cat > /tmp/exportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>teamID</key>
+            <string>${DEVELOPMENT_TEAM}</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild \
+            -exportArchive \
+            -archivePath $CM_BUILD_DIR/App.xcarchive \
+            -exportPath $CM_BUILD_DIR/ipa \
+            -exportOptionsPlist /tmp/exportOptions.plist
+
+    artifacts:
+      - $CM_BUILD_DIR/ipa/*.ipa
+      - $CM_BUILD_DIR/App.xcarchive
+
+    publishing:
+      email:
+        recipients:
+          - saad.hdia@gmail.com
+        notify:
+          success: true
+          failure: true
