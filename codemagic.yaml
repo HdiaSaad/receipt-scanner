@@ -19,7 +19,8 @@ workflows:
       - name: Enable pnpm
         script: |
           corepack enable
-          corepack prepare pnpm@9.15.0 --activate
+          # packageManager field in root package.json pins pnpm; just prime the cache
+          corepack prepare --activate
           pnpm --version
 
       - name: Install dependencies
